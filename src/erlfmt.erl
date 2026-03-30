@@ -38,13 +38,15 @@
     file:name_all(), erl_anno:location() | erlfmt_scan:anno(), module(), Reason :: any()
 }.
 -type pragma() :: require | insert | delete | ignore.
--type config_option() :: {pragma, pragma()} | {print_width, pos_integer()} | verbose.
+-type config_option() ::
+    {pragma, pragma()} | {indent_size, pos_integer()} | {print_width, pos_integer()} | verbose.
 -type config() :: [config_option()].
 
 %% needed because of getopt being weird
 -dialyzer({nowarn_function, [init/1, main/1]}).
 
--define(DEFAULT_WIDTH, 100).
+-define(DEFAULT_WIDTH, 105).
+-define(DEFAULT_INDENT, 2).
 
 %% escript entry point
 -spec main([string()]) -> no_return().
@@ -88,6 +90,8 @@ format_file(FileName, Options) ->
 -spec format_file_full(file:name_all() | stdin, config()) ->
     {ok, [unicode:chardata()], [error_info()]} | {skip, string()} | {error, error_info()}.
 format_file_full(FileName, Options) ->
+    IndentSize = proplists:get_value(indent_size, Options, ?DEFAULT_INDENT),
+    persistent_term:put('$erlfmt_indent', IndentSize),
     PrintWidth = proplists:get_value(print_width, Options, ?DEFAULT_WIDTH),
     Pragma = proplists:get_value(pragma, Options, ignore),
     try
@@ -135,6 +139,8 @@ format_string(String, Options) ->
     {ok, string(), [error_info()]} | {skip, string()} | {error, error_info()}.
 format_string_full(String, Options) ->
     Filename = proplists:get_value(filename, Options, "nofile"),
+    IndentSize = proplists:get_value(indent_size, Options, ?DEFAULT_INDENT),
+    persistent_term:put('$erlfmt_indent', IndentSize),
     PrintWidth = proplists:get_value(print_width, Options, ?DEFAULT_WIDTH),
     Pragma = proplists:get_value(pragma, Options, ignore),
     try
