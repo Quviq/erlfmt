@@ -20,6 +20,7 @@
 
 -record(config, {
     verbose = false :: boolean(),
+    indent_size = undefined :: undefined | pos_integer(),
     print_width = undefined :: undefined | pos_integer(),
     pragma = ignore :: erlfmt:pragma(),
     out = standard_out :: out(),
@@ -40,8 +41,10 @@ opts() ->
             "Check if your files are formatted. "
             "Get exit code 1, if some files are not formatted. "
             "--write is not supported."},
+        {indent_size, undefined, "indent-size", integer,
+            "The number of spaces used for indentation (default: 2)"},
         {print_width, undefined, "print-width", integer,
-            "The line length that formatter would wrap on"},
+            "The line length that formatter would wrap on (default: 105)"},
         {require_pragma, undefined, "require-pragma", undefined,
             "Require a special comment @format, called a pragma, "
             "to be present in the file's first docblock comment in order for erlfmt to format it."},
@@ -186,7 +189,14 @@ unprotected_with_config(Name, ParsedConfig) ->
     end.
 
 format_file(FileName, Config) ->
-    #config{pragma = Pragma, print_width = PrintWidth, verbose = Verbose, out = Out, range = Range} =
+    #config{
+        pragma = Pragma,
+        indent_size = IndentSize,
+        print_width = PrintWidth,
+        verbose = Verbose,
+        out = Out,
+        range = Range
+    } =
         Config,
     case Verbose of
         true -> io:format(standard_error, "Formatting ~s\n", [FileName]);
@@ -194,6 +204,7 @@ format_file(FileName, Config) ->
     end,
     Options =
         [{pragma, Pragma}] ++
+            [{indent_size, IndentSize} || IndentSize =/= undefined] ++
             [{print_width, PrintWidth} || PrintWidth =/= undefined] ++
             [verbose || Verbose] ++
             [{range, Range} || Range =/= undefined],
@@ -355,6 +366,8 @@ parse_opts([check | _Rest], _Files, _Exclude, #config{out = Out}) when Out =/= s
     {error, "--check mode can't be combined write or replace mode"};
 parse_opts([check | Rest], Files, Exclude, Config) ->
     parse_opts(Rest, Files, Exclude, Config#config{out = check});
+parse_opts([{indent_size, Value} | Rest], Files, Exclude, Config) ->
+    parse_opts(Rest, Files, Exclude, Config#config{indent_size = Value});
 parse_opts([{print_width, Value} | Rest], Files, Exclude, Config) ->
     parse_opts(Rest, Files, Exclude, Config#config{print_width = Value});
 parse_opts([require_pragma | _Rest], _Files, _Exclude, #config{pragma = insert}) ->
@@ -445,6 +458,7 @@ resolve_files(PreferFiles, _DefaultFiles) -> PreferFiles.
 resolve_config(
     #config{
         verbose = PreferVerbose,
+        indent_size = PreferSize,
         print_width = PreferWidth,
         pragma = PreferPragma,
         out = PreferOut,
@@ -452,6 +466,7 @@ resolve_config(
     },
     #config{
         verbose = DefaultVerbose,
+        indent_size = DefaultSize,
         print_width = DefaultWidth,
         pragma = DefaultPragma,
         out = DefaultOut,
@@ -460,6 +475,7 @@ resolve_config(
 ) ->
     #config{
         verbose = PreferVerbose orelse DefaultVerbose,
+        indent_size = resolve_width(PreferSize, DefaultSize),
         print_width = resolve_width(PreferWidth, DefaultWidth),
         pragma = resolve_pragma(PreferPragma, DefaultPragma),
         out = resolve_out(PreferOut, DefaultOut),
