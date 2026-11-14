@@ -17,6 +17,8 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("test/assert_diagnostic.hrl").
 
+-define(UPSTREAM_FORMAT_OPTIONS, [{indent_size, 4}, {print_width, 100}]).
+
 %% Test server callbacks
 -export([
     suite/0,
@@ -107,7 +109,9 @@
     skip_pragma_escript/1,
     overlong_warning/1,
     do_not_crash_on_bad_record/1,
-    raw_string_anno/1
+    raw_string_anno/1,
+    format_options/1,
+    concurrent_indent_options/1
 ]).
 
 suite() ->
@@ -159,7 +163,9 @@ groups() ->
             do_not_crash_on_bad_record,
             raw_string_anno,
             dotted,
-            map_comprehension
+            map_comprehension,
+            format_options,
+            concurrent_indent_options
         ]},
         {snapshot_tests, [parallel], [
             snapshot_simple_comments,
@@ -1124,6 +1130,64 @@ snapshot_tripple_crash(Config) -> snapshot_same("tripple_crash.erl", Config).
 
 snapshot_sigil_crash(Config) -> snapshot_same("sigil_crash.erl", Config).
 
+format_options(Config) ->
+    Original = "f() ->\n ok.\n",
+    Default = "f() ->\n  ok.\n",
+    Indented = "f() ->\n    ok.\n",
+    ?assertEqual({ok, Default, []}, erlfmt:format_string(Original, [])),
+    ?assertEqual(
+        {ok, Indented, []},
+        erlfmt:format_string(Original, [{indent_size, 4}])
+    ),
+    {ok, DefaultRange, []} = erlfmt:format_string_range(Original, {1, 1}, {2, 4}, []),
+    ?assertEqual(Default, unicode:characters_to_list(DefaultRange)),
+    {ok, IndentedRange, []} = erlfmt:format_string_range(
+        Original, {1, 1}, {2, 4}, [{indent_size, 4}]
+    ),
+    ?assertEqual(Indented, unicode:characters_to_list(IndentedRange)),
+    Path = filename:join(?config(priv_dir, Config), "format_options.erl"),
+    ok = file:write_file(Path, Original),
+    {ok, FileOutput, []} = erlfmt:format_file(Path, []),
+    ?assertEqual(Default, unicode:characters_to_list(FileOutput)),
+    {ok, RangeOutput, []} = erlfmt:format_file_range(Path, {1, 1}, {2, 4}, [{indent_size, 4}]),
+    ?assertEqual(Indented, unicode:characters_to_list(RangeOutput)),
+    LongLine = "f() -> {" ++ lists:duplicate(94, $a) ++ "}.\n",
+    ?assertEqual({ok, LongLine, []}, erlfmt:format_string(LongLine, [])),
+    ?assertNotEqual({ok, LongLine, []}, erlfmt:format_string(LongLine, [{print_width, 100}])).
+
+concurrent_indent_options(_Config) ->
+    Original = lists:flatten(lists:duplicate(30, "f() ->\n ok.\n")),
+    Workers = [
+        spawn_monitor(fun() ->
+            Indent =
+                case N rem 2 of
+                    0 -> 2;
+                    1 -> 4
+                end,
+            Expected = lists:flatten(
+                lists:duplicate(30, "f() ->\n" ++ lists:duplicate(Indent, $\s) ++ "ok.\n")
+            ),
+            lists:foreach(
+                fun(_) ->
+                    ?assertEqual(
+                        {ok, Expected, []},
+                        erlfmt:format_string(Original, [{indent_size, Indent}])
+                    )
+                end,
+                lists:seq(1, 10)
+            )
+        end)
+     || N <- lists:seq(1, 8)
+    ],
+    lists:foreach(
+        fun({Pid, Ref}) ->
+            receive
+                {'DOWN', Ref, process, Pid, Reason} -> ?assertEqual(normal, Reason)
+            end
+        end,
+        Workers
+    ).
+
 snapshot_same(Module, Config) ->
     Pragma = proplists:get_value(pragma, Config, ignore),
     snapshot_match(Module, Module, Config, [{pragma, Pragma}]).
@@ -1140,7 +1204,7 @@ snapshot_match(FormattedModule, Module, Config, Options) ->
     {ok, OriginalBin} = file:read_file(filename:join([DataDir, Module])),
     Formatted = unicode:characters_to_list(FormattedBin),
     Original = unicode:characters_to_list(OriginalBin),
-    Output = erlfmt:format_string(Original, Options),
+    Output = erlfmt:format_string(Original, Options ++ ?UPSTREAM_FORMAT_OPTIONS),
     assert_diagnostic:assert_snapshot_match(Formatted, Output).
 
 assert_snapshot_match_range(Expected, Result) ->
@@ -1247,7 +1311,7 @@ snapshot_range_whole_comments(Config) ->
     DataDir = ?config(data_dir, Config),
     {ok, FormattedBin} = file:read_file(filename:join([DataDir, Module ++ ".formatted"])),
     Path = filename:join(DataDir, Module),
-    Output = erlfmt:format_file_range(Path, {1, 1}, {38, 25}, []),
+    Output = erlfmt:format_file_range(Path, {1, 1}, {38, 25}, ?UPSTREAM_FORMAT_OPTIONS),
     assert_diagnostic:assert_snapshot_match(FormattedBin, Output).
 
 snapshot_range_whole_string_unicode(_) ->
@@ -1265,7 +1329,7 @@ snapshot_range_whole_file_unicode(Config) ->
     DataDir = ?config(data_dir, Config),
     {ok, FormattedBin} = file:read_file(filename:join([DataDir, Module ++ ".formatted"])),
     Path = filename:join(DataDir, Module),
-    Output = erlfmt:format_file_range(Path, {1, 1}, {11, 7}, []),
+    Output = erlfmt:format_file_range(Path, {1, 1}, {11, 7}, ?UPSTREAM_FORMAT_OPTIONS),
     assert_diagnostic:assert_snapshot_match(FormattedBin, Output).
 
 snapshot_range_partial_top(_) ->
@@ -1346,7 +1410,7 @@ snapshot_range_partial_two_lines(_) ->
         "x() ->\n"
         "    0.\n"
         "y()   ->  1.\n",
-    Result = erlfmt:format_string_range(Original, {1, 1}, {2, 3}, []),
+    Result = erlfmt:format_string_range(Original, {1, 1}, {2, 3}, ?UPSTREAM_FORMAT_OPTIONS),
     assert_snapshot_match_range(Reference, Result).
 
 snapshot_range_noformat_global(_) ->
@@ -1399,7 +1463,7 @@ snapshot_enclosing_range(_) ->
         "    0.\n"
         "y()   ->  1.\n",
     % Range is just the first char (mimic e.g. function renaming).
-    Result = erlfmt:format_string_range(Original, {1, 1}, {1, 2}, []),
+    Result = erlfmt:format_string_range(Original, {1, 1}, {1, 2}, ?UPSTREAM_FORMAT_OPTIONS),
     assert_snapshot_match_range(Reference, Result).
 
 snapshot_enclosing_range2(_) ->
@@ -1413,7 +1477,7 @@ snapshot_enclosing_range2(_) ->
         "x() ->\n"
         "    0.\n"
         "y()   ->  1.\n",
-    Result = erlfmt:format_string_range(Original, {2, 2}, {2, 3}, []),
+    Result = erlfmt:format_string_range(Original, {2, 2}, {2, 3}, ?UPSTREAM_FORMAT_OPTIONS),
     assert_snapshot_match_range(Reference, Result).
 
 snapshot_enclosing_range_no_leak(_) ->
@@ -1430,7 +1494,7 @@ snapshot_enclosing_range_no_leak(_) ->
         "y()   ->  1.\n",
     % End point overshots line 3, but doesn't reach line 4:
     % Only x() must be formatted.
-    Result = erlfmt:format_string_range(Original, {1, 1}, {3, 3}, []),
+    Result = erlfmt:format_string_range(Original, {1, 1}, {3, 3}, ?UPSTREAM_FORMAT_OPTIONS),
     assert_snapshot_match_range(Reference, Result).
 
 snapshot_range_reinjected(_) ->
@@ -1701,10 +1765,11 @@ contains_pragma_string(String) ->
     end.
 
 insert_pragma_string(String) ->
-    {ok, StringWithPragma, []} = erlfmt:format_string(String, [{pragma, insert}]),
+    Options = [{pragma, insert} | ?UPSTREAM_FORMAT_OPTIONS],
+    {ok, StringWithPragma, []} = erlfmt:format_string(String, Options),
     %% check that insert_pragma_nodes doesn't insert a pragma, when one has already been inserted.
     ?assertEqual(
-        erlfmt:format_string(StringWithPragma, [{pragma, insert}]),
+        erlfmt:format_string(StringWithPragma, Options),
         {ok, StringWithPragma, []}
     ),
     StringWithPragma.
@@ -1712,7 +1777,7 @@ insert_pragma_string(String) ->
 overlong_warning(Config) when is_list(Config) ->
     DataDir = ?config(data_dir, Config),
     FileName = filename:join([DataDir, "overlong.erl"]),
-    Options = [verbose],
+    Options = [verbose | ?UPSTREAM_FORMAT_OPTIONS],
     {ok, Formatted, FileWarnings} = erlfmt:format_file(FileName, Options),
     FormattedList = unicode:characters_to_list(Formatted),
     {ok, _, StringWarnings} = erlfmt:format_string(FormattedList, Options),

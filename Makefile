@@ -1,3 +1,5 @@
+ERLFMT_SOURCE_STYLE = --indent-size=4 --print-width=100
+
 .PHONY: compile
 compile:
 	rebar3 compile
@@ -17,11 +19,11 @@ clean:
 
 .PHONY: fmt
 fmt: release
-	_build/release/bin/erlfmt -w
+	_build/release/bin/erlfmt -w $(ERLFMT_SOURCE_STYLE)
 
 .PHONY: checkfmt
 checkfmt: release
-	_build/release/bin/erlfmt -c --exclude-files="src/erlfmt_parse.erl"
+	_build/release/bin/erlfmt -c $(ERLFMT_SOURCE_STYLE) --exclude-files="src/erlfmt_parse.erl"
 
 .PHONY: check
 check: clean

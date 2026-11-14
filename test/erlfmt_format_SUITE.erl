@@ -222,7 +222,7 @@ has_feature(Feature, Config) ->
 end).
 
 format_string(String, Options) ->
-    {ok, Formatted, []} = erlfmt:format_string(String, Options),
+    {ok, Formatted, []} = erlfmt:format_string(String, [{indent_size, 4} | Options]),
     Formatted.
 
 literals(Config) when is_list(Config) ->

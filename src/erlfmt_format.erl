@@ -45,7 +45,7 @@
     fold_doc/2
 ]).
 
--define(INDENT, persistent_term:get('$erlfmt_indent')).
+-define(INDENT, get('$erlfmt_indent')).
 
 -spec to_algebra(erlfmt_parse:any_node()) -> erlfmt_algebra:doc().
 to_algebra({shebang, Meta, String}) ->
