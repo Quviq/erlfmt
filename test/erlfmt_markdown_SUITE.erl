@@ -87,7 +87,7 @@ markdown_files(Config) when is_list(Config) ->
 find_markdown_filenames_in(Path) ->
     {ok, BaseFilenames} = file:list_dir_all(Path),
     Filenames =
-        lists:map(fun(Filename) -> filename:join([Path, Filename]) end, BaseFilenames),
+        [filename:join([Path, Filename]) || Filename <- BaseFilenames],
     lists:filter(fun(Filename) -> filename:extension(Filename) == ".md" end, Filenames).
 
 markdown_string(Config) when is_list(Config) ->
@@ -141,9 +141,9 @@ split_code_into_maps(Text, {code, Formatted, Unformatted}) ->
     Spec = string:split(FirstLine, " ", all),
     case Spec of
         ["erl" ++ _, "formatted" | Key] ->
-            {text, maps:put(Key, Code, Formatted), Unformatted};
+            {text, Formatted#{Key => Code}, Unformatted};
         ["erl" ++ _, "unformatted" | Key] ->
-            {text, Formatted, maps:put(Key, Code, Unformatted)};
+            {text, Formatted, Unformatted#{Key => Code}};
         _ ->
             {text, Formatted, Unformatted}
     end.
@@ -153,5 +153,5 @@ strip_good_bad("%% Bad\n" ++ Rest) -> Rest;
 strip_good_bad(Rest) -> Rest.
 
 check_fmt(Unformatted, Expected) ->
-    {ok, Got, []} = erlfmt:format_string(Unformatted, []),
+    {ok, Got, []} = erlfmt:format_string(Unformatted, [{indent_size, 4}, {print_width, 100}]),
     ?assertEqual(string:trim(Expected), string:trim(Got)).

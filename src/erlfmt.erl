@@ -91,7 +91,6 @@ format_file(FileName, Options) ->
     {ok, [unicode:chardata()], [error_info()]} | {skip, string()} | {error, error_info()}.
 format_file_full(FileName, Options) ->
     IndentSize = proplists:get_value(indent_size, Options, ?DEFAULT_INDENT),
-    persistent_term:put('$erlfmt_indent', IndentSize),
     PrintWidth = proplists:get_value(print_width, Options, ?DEFAULT_WIDTH),
     Pragma = proplists:get_value(pragma, Options, ignore),
     try
@@ -103,7 +102,7 @@ format_file_full(FileName, Options) ->
                         delete -> remove_pragma_nodes(Nodes0);
                         _ -> Nodes0
                     end,
-                Formatted = format_nodes(Nodes, PrintWidth),
+                Formatted = format_nodes(Nodes, PrintWidth, IndentSize),
                 verify_nodes(FileName, Nodes, Formatted),
                 VerboseWarnings =
                     case proplists:get_bool(verbose, Options) of
@@ -140,7 +139,6 @@ format_string(String, Options) ->
 format_string_full(String, Options) ->
     Filename = proplists:get_value(filename, Options, "nofile"),
     IndentSize = proplists:get_value(indent_size, Options, ?DEFAULT_INDENT),
-    persistent_term:put('$erlfmt_indent', IndentSize),
     PrintWidth = proplists:get_value(print_width, Options, ?DEFAULT_WIDTH),
     Pragma = proplists:get_value(pragma, Options, ignore),
     try
@@ -152,7 +150,7 @@ format_string_full(String, Options) ->
                         delete -> remove_pragma_nodes(Nodes0);
                         _ -> Nodes0
                     end,
-                Formatted = format_nodes(Nodes, PrintWidth),
+                Formatted = format_nodes(Nodes, PrintWidth, IndentSize),
                 verify_nodes(Filename, Nodes, Formatted),
                 VerboseWarnings =
                     case proplists:get_bool(verbose, Options) of
@@ -287,7 +285,7 @@ replace_pragma_comment_block(Prefix, [Head | Tail]) ->
     file:name_all(),
     erlfmt_scan:location(),
     erlfmt_scan:location(),
-    [{print_width, pos_integer()}]
+    [config_option()]
 ) ->
     {ok, string(), [error_info()]}
     | {skip, string()}
@@ -300,7 +298,7 @@ format_file_range(FileName, StartLocation, EndLocation, Options) ->
     string(),
     erlfmt_scan:location(),
     erlfmt_scan:location(),
-    [{print_width, pos_integer()} | {filename, string()}]
+    [config_option() | {filename, string()}]
 ) ->
     {ok, string(), [error_info()]}
     | {skip, string()}
@@ -373,10 +371,11 @@ format_enclosing_range(FileName, StartLocation, EndLocation, Options, Nodes, War
 
 format_range(FileName, StartLocation, EndLocation, Options, Nodes, Warnings) ->
     PrintWidth = proplists:get_value(print_width, Options, ?DEFAULT_WIDTH),
+    IndentSize = proplists:get_value(indent_size, Options, ?DEFAULT_INDENT),
     try
         case verify_ranges(Nodes, StartLocation, EndLocation) of
             {ok, NodesInRange} ->
-                Result = format_nodes(NodesInRange, PrintWidth),
+                Result = format_nodes(NodesInRange, PrintWidth, IndentSize),
                 verify_nodes(FileName, NodesInRange, Result),
                 VerboseWarnings =
                     case proplists:get_bool(verbose, Options) of
@@ -613,8 +612,21 @@ node_string(Cont) ->
 format_nodes([], _PrintWidth) ->
     [];
 format_nodes(Nodes, PrintWidth) ->
-    [$\n | Formatted] = format_nodes_loop(Nodes, PrintWidth),
-    Formatted.
+    format_nodes(Nodes, PrintWidth, ?DEFAULT_INDENT).
+
+format_nodes([], _PrintWidth, _IndentSize) ->
+    [];
+format_nodes(Nodes, PrintWidth, IndentSize) ->
+    PreviousIndent = put('$erlfmt_indent', IndentSize),
+    try
+        [$\n | Formatted] = format_nodes_loop(Nodes, PrintWidth),
+        Formatted
+    after
+        case PreviousIndent of
+            undefined -> erase('$erlfmt_indent');
+            _ -> put('$erlfmt_indent', PreviousIndent)
+        end
+    end.
 
 format_nodes_loop([Node | [Next | _] = Rest], PrintWidth) ->
     [
@@ -764,8 +776,8 @@ nodes_in_range(Nodes, StartLocation, EndLocation) ->
 
 node_intersects_range(Node, StartLocation, EndLocation) ->
     {Start, End} = get_location_range(Node),
-    ((Start < StartLocation) and (End > StartLocation)) or
-        ((Start >= StartLocation) and (Start < EndLocation)).
+    ((Start < StartLocation) andalso (End > StartLocation)) orelse
+        ((Start >= StartLocation) andalso (Start < EndLocation)).
 
 get_possible_locations([Option1, Option2 | _], Location, GetLoc) ->
     case GetLoc(Option1) of

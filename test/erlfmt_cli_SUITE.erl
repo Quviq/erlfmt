@@ -54,7 +54,8 @@
     exclude_absolute_check/1,
     range_check_full/1,
     range_check_partial/1,
-    out_full_test/1
+    out_full_test/1,
+    indent_options/1
 ]).
 
 suite() ->
@@ -103,7 +104,8 @@ groups() ->
             exclude_absolute_check,
             range_check_full,
             range_check_partial,
-            out_full_test
+            out_full_test,
+            indent_options
         ]}
     ].
 
@@ -221,7 +223,8 @@ smoke_test_stdio_check(Config) when is_list(Config) ->
     DataDir = ?config(data_dir, Config),
     Same = os:cmd(
         "cat " ++
-            filename:join(DataDir, "attributes.erl") ++ " | " ++ escript() ++ " - " ++ "--check"
+            filename:join(DataDir, "attributes.erl") ++ " | " ++ escript() ++
+            " - --check --indent-size=4 --print-width=100"
     ),
     ?assertMatch(nomatch, string:find(Same, "[warn]")),
     Warn = os:cmd(
@@ -295,13 +298,22 @@ out_full_test(Config) when is_list(Config) ->
     ExpectedFormatted = filename:join(OutDir, Formatted),
     ?assertEqual({error, enoent}, file:read_file(ExpectedFormatted)).
 
+indent_options(Config) when is_list(Config) ->
+    Cmd = "printf 'f() ->\\n ok.\\n' | " ++ escript() ++ " -",
+    ?assertEqual("f() ->\n  ok.\n", os:cmd(Cmd)),
+    ?assertEqual("f() ->\n    ok.\n", os:cmd(Cmd ++ " --indent-size=4")),
+    ?assertEqual("f() ->\n    ok.\n", os:cmd(Cmd ++ " --range=1,2 --indent-size=4")).
+
 %%--------------------------------------------------------------------
 %% HELPERS
 
 stdio_test(FileName, Options, Config) ->
     DataDir = ?config(data_dir, Config),
     Path = filename:join(DataDir, FileName),
-    Formatted = os:cmd("cat " ++ Path ++ " | " ++ escript() ++ " - " ++ Options),
+    Formatted = os:cmd(
+        "cat " ++ Path ++ " | " ++ escript() ++
+            " - --indent-size=4 --print-width=100 " ++ Options
+    ),
     % ?assertEqual(toto, Path),
     {ok, Expected} = file:read_file(Path),
     assert_diagnostic:assert_binary_match(Expected, unicode:characters_to_binary(Formatted)).
